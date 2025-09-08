@@ -106,7 +106,7 @@ const initDefaultData = () => {
       const now = new Date().toISOString();
       db.run(
         `INSERT INTO admin (username, password, created_at, updated_at) VALUES (?, ?, ?, ?)`,
-        ["admin", "admin123", now, now],
+        ["admin", "0192023a7bbd73250516f069df18b500", now, now],
         (err) =>
           err
             ? console.error("创建默认管理员失败:", err.message)
@@ -315,7 +315,7 @@ app.get("/staffs/query-duty/:date", (req, res) => {
 app.post("/admin/login", (req, res) => {
   dbService.adminLogin(req.body, (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
-    res.json(row || null);
+    res.status(200).json(row || null);
   });
 });
 
