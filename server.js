@@ -363,7 +363,7 @@ app.put("/admin/hospital/update-info", (req, res) => {
 app.post("/admin/update-password", (req, res) => {
   dbService.changeAdminPassword(req.body, (err) => {
     if (err) return res.status(400).json({ error: err.message });
-    res.json({ success: true });
+    res.status(200).json({ success: true });
   });
 });
 
