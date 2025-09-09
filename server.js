@@ -39,7 +39,8 @@ const initTables = async () => {
         name TEXT NOT NULL,
         introduction TEXT,
         address TEXT,
-        contact TEXT,
+        phone TEXT,
+        emergencyPhone TEXT,
         created_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL
       )`,
@@ -126,12 +127,13 @@ const initDefaultData = () => {
     if (result.count === 0) {
       const now = new Date().toISOString();
       db.run(
-        `INSERT INTO hospital_info (name, introduction, address, contact, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)`,
+        `INSERT INTO hospital_info (name, introduction, address, phone, emergencyPhone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`,
         [
           "城东医院",
           "欢迎来到城东医院。我院成立于1997年，是一所综合性三级甲等医院。",
           "城市中心区xx路666号",
-          "咨询电话: 025-12345678 急诊电话: 025-12345679",
+          "025-12345678",
+          "025-12345679",
           now,
           now,
         ],
@@ -228,20 +230,20 @@ const dbService = {
 
   // 更新医院信息
   updateHospitalInfo: (hospitalData, callback) => {
-    const { name, introduction, address, contact } = hospitalData;
+    const { name, introduction, address, phone, emergencyPhone } = hospitalData;
     const now = new Date().toISOString();
     db.get("SELECT id FROM hospital_info LIMIT 1", [], (err, row) => {
       if (err) return callback(err);
       if (row) {
         db.run(
-          "UPDATE hospital_info SET name = ?, introduction = ?, address = ?, contact = ?, updated_at = ? WHERE id = ?",
-          [name, introduction || "", address || "", contact || "", now, row.id],
+          "UPDATE hospital_info SET name = ?, introduction = ?, address = ?, phone = ?, emergencyPhone = ?, updated_at = ? WHERE id = ?",
+          [name, introduction || "", address || "", phone || "", emergencyPhone || "", now, row.id],
           callback
         );
       } else {
         db.run(
-          "INSERT INTO hospital_info (name, introduction, address, contact, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-          [name, introduction || "", address || "", contact || "", now, now],
+          "INSERT INTO hospital_info (name, introduction, address, phone, emergencyPhone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+          [name, introduction || "", address || "", phone || "", emergencyPhone || "", now, now],
           callback
         );
       }
