@@ -1,6 +1,8 @@
 import express from "express";
 import sqlite3 from "sqlite3";
 import cors from "cors";
+import multiparty from "multiparty";
+import { parseExcelWithImages } from "./utils.js";
 
 // 启用SQLite3 verbose模式
 sqlite3.verbose();
@@ -53,6 +55,7 @@ const initTables = async () => {
         department TEXT NOT NULL,
         position TEXT,
         status TEXT DEFAULT 'active',
+        avatar TEXT,
         created_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL
       )`,
@@ -96,7 +99,7 @@ const initTables = async () => {
 const initDefaultData = () => {
   // 检查并创建默认管理员
   db.get("SELECT COUNT(*) as count FROM admin", (err, result) => {
-    console.log('found error',err, result)
+    console.log("found error", err, result);
     if (err) {
       console.error("查询admin表失败:", err.message);
       // 延迟重试查询
@@ -149,7 +152,7 @@ const initDefaultData = () => {
 // 初始化数据库
 await initTables();
 await initDefaultData();
-console.log('数据库初始化完成')
+console.log("数据库初始化完成");
 
 // 数据库操作服务封装
 const dbService = {
@@ -162,13 +165,28 @@ const dbService = {
   //   db.get("SELECT * FROM staff WHERE id = ?", [id], callback);
   // },
 
+  importStaffData: (staffDataArr, callback) => {
+    staffDataArr.forEach((staffData) => {
+      dbService.createStaff(staffData, () => {});
+    });
+    callback(null, "staff data imported successfully");
+  },
+
   // 创建员工
   createStaff: (staffData, callback) => {
-    const { name, department, position, status } = staffData;
+    const { name, department, position, status = "active", avatar } = staffData;
     const now = new Date().toISOString();
     db.run(
-      "INSERT INTO staff (name, department, position, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      [name, department, position || "", status || "active", now, now],
+      "INSERT INTO staff (name, department, position, status, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      [
+        name,
+        department,
+        position || "",
+        status || "active",
+        avatar || "",
+        now,
+        now,
+      ],
       callback
     );
   },
@@ -178,8 +196,8 @@ const dbService = {
     const { name, department, position, status } = staffData;
     const now = new Date().toISOString();
     db.run(
-      "UPDATE staff SET name = ?, department = ?, position = ?, status = ?, updated_at = ? WHERE id = ?",
-      [name, department, position, status, now, id],
+      "UPDATE staff SET name = ?, department = ?, position = ?, status = ?, avatar = ?, updated_at = ? WHERE id = ?",
+      [name, department, position, status, avatar || "", now, id],
       callback
     );
   },
@@ -237,13 +255,29 @@ const dbService = {
       if (row) {
         db.run(
           "UPDATE hospital_info SET name = ?, introduction = ?, address = ?, phone = ?, emergencyPhone = ?, updated_at = ? WHERE id = ?",
-          [name, introduction || "", address || "", phone || "", emergencyPhone || "", now, row.id],
+          [
+            name,
+            introduction || "",
+            address || "",
+            phone || "",
+            emergencyPhone || "",
+            now,
+            row.id,
+          ],
           callback
         );
       } else {
         db.run(
           "INSERT INTO hospital_info (name, introduction, address, phone, emergencyPhone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
-          [name, introduction || "", address || "", phone || "", emergencyPhone || "", now, now],
+          [
+            name,
+            introduction || "",
+            address || "",
+            phone || "",
+            emergencyPhone || "",
+            now,
+            now,
+          ],
           callback
         );
       }
@@ -318,6 +352,30 @@ app.post("/admin/login", (req, res) => {
   dbService.adminLogin(req.body, (err, row) => {
     if (err) return res.status(500).json({ error: err.message });
     res.status(200).json(row || null);
+  });
+});
+
+// 批量导入人员
+app.post("/admin/staffs/import-staff-data", (req, res) => {
+  const form = new multiparty.Form();
+  form.parse(req, (err, fields, files) => {
+    if (err) return res.status(500).json({ error: err.message });
+    if (files.file && files.file.length > 0) {
+      const file = files.file[0];
+      parseExcelWithImages(file.path)
+        .then((result) => {
+          dbService.importStaffData(result, (err) => {
+            if (err) return res.status(500).json({ error: err.message });
+            console.log("staff data imported successfully");
+            res.status(200).json({ success: true });
+          });
+        })
+        .catch((err) => {
+          res.status(500).json({ error: err.message });
+        });
+    } else {
+      res.status(400).json({ error: "请上传Excel文件" });
+    }
   });
 });
 

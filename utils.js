@@ -21,6 +21,7 @@ async function parseExcelWithImages(filePath) {
   });
 
   const worksheet = workbook.getWorksheet(1);
+  const dataKey = ["name", "department", "position", "avatar"];
   const data = [];
   const images = {};
   const imageFormulas = {}; // 存储DISPIMG公式引用的图片
@@ -28,33 +29,15 @@ async function parseExcelWithImages(filePath) {
 
   // 处理表格数据
   worksheet.eachRow((row, rowNumber) => {
-    const rowData = [];
-    row.eachCell((cell, colNumber) => {
-      // 尝试多种方式检测DISPIMG公式
-      let foundFormula = false;
-
-      if (
-        cell.formula &&
-        typeof cell.formula === "string" &&
-        cell.formula.includes("DISPIMG")
-      ) {
-        const match = cell.formula.match(/"([^"]+)"/);
-        if (match && match[1]) {
-          const imageId = match[1];
-          imageFormulas[imageId] = {
-            row: rowNumber,
-            col: colNumber,
-            address: cell.address,
-          };
-          console.log(`方式1 - 找到DISPIMG公式: ID=${imageId}`);
-          foundFormula = true;
-        }
-      }
-
-      if (!foundFormula && cell.value && cell.value.result) {
-        const result = cell.value.result;
-        if (typeof result === "string" && result.includes("DISPIMG")) {
-          const match = result.match(/"([^"]+)"/);
+    const rowData = {};
+    if (rowNumber > 1) {
+      row.eachCell((cell, colNumber) => {
+        if (
+          cell.formula &&
+          typeof cell.formula === "string" &&
+          cell.formula.includes("DISPIMG")
+        ) {
+          const match = cell.formula.match(/"([^"]+)"/);
           if (match && match[1]) {
             const imageId = match[1];
             imageFormulas[imageId] = {
@@ -62,14 +45,17 @@ async function parseExcelWithImages(filePath) {
               col: colNumber,
               address: cell.address,
             };
-            console.log(`方式2 - 找到DISPIMG公式: ID=${imageId}`);
-            foundFormula = true;
           }
+          // 跳过标题行
+          const key = dataKey[colNumber - 1];
+          rowData[key] = cell.value;
+        } else {
+          // 非DISPIMG公式，直接存储值
+          const key = dataKey[colNumber - 1];
+          rowData[key] = cell.value;
         }
-      }
-
-      rowData.push(cell.value);
-    });
+      });
+    }
     data.push(rowData);
   });
 
@@ -92,153 +78,99 @@ async function parseExcelWithImages(filePath) {
             type: media.type || "image/jpeg",
             source: "workbook.media",
           };
-          console.log(`成功从workbook.media提取图片: ${imageKey}`);
         } catch (error) {
           console.error(`提取media图片时出错:`, error);
         }
       }
     });
   }
+  // 创建映射，将行号和列号映射到对应的图片
+  const imageByPosition = {};
 
-  // 检查model对象的其他属性
-  if (workbook.model) {
-    // 检查是否有media相关属性
-    if (workbook.model.media) {
-      // 尝试从workbook.model.media中提取图片数据
-      workbook.model.media.forEach((media, index) => {
-        if (media.buffer && !images[`model_media_${index}`]) {
-          try {
-            const base64Image = Buffer.from(media.buffer).toString("base64");
-            const imageKey = `model_media_${index}`;
-            images[imageKey] = {
-              base64: base64Image,
-              type: media.type || "image/jpeg",
-              source: "workbook.model.media",
-            };
-            console.log(`成功从workbook.model.media提取图片: ${imageKey}`);
-          } catch (error) {
-            console.error(`提取model.media图片时出错:`, error);
-          }
-        }
-      });
+  // 如果有图片和公式信息，建立映射关系
+  if (Object.keys(images).length > 0 && Object.keys(imageFormulas).length > 0) {
+    // 将图片与行数据关联
+    Object.entries(imageFormulas).forEach(([imageId, formulaInfo], index) => {
+      const { row, col } = formulaInfo;
+      const positionKey = `${row}_${col}`;
+
+      // 找到对应的图片
+      let matchedImage = null;
+
+      // 方法1: 如果有相同ID的图片
+      if (images[imageId]) {
+        matchedImage = images[imageId];
+      }
+      // 方法2: 如果没有相同ID的图片，使用顺序匹配
+      else if (Object.values(images)[index]) {
+        matchedImage = Object.values(images)[index];
+      }
+      // 方法3: 如果以上都不匹配，使用第一张图片
+      else if (Object.values(images)[0]) {
+        matchedImage = Object.values(images)[0];
+      }
+      if (matchedImage) {
+        imageByPosition[positionKey] = matchedImage;
+      }
+    });
+  } else if (Object.keys(images).length > 0) {
+    // 如果只有图片没有公式信息，按顺序关联
+    console.log(`只有图片(${Object.keys(images).length}张)，没有公式信息`);
+  }
+  // 将图片数据直接存储到data数组的对应位置
+  for (const positionKey in imageByPosition) {
+    const [rowStr, colStr] = positionKey.split("_");
+    const rowIndex = parseInt(rowStr) - 1; // 转换为0-based索引
+    const colIndex = parseInt(colStr) - 1;
+
+    if (data[rowIndex] && data[rowIndex]["avatar"] !== undefined) {
+      // 在对应位置存储图片数据和原始值
+      data[rowIndex]["avatar"] = imageByPosition[positionKey].base64;
     }
   }
-
-  // 方法1: 尝试通过ExcelJS的内置方法获取图片
-  try {
-    // 检查workbook对象中的图片相关属性
-    if (workbook.model && workbook.model.images) {
-      Object.entries(workbook.model.images).forEach(
-        ([imageId, image], index) => {
-          if (image && image.buffer) {
-            const base64Image = image.buffer.toString("base64");
-            let mimeType = "image/png";
-            if (image.extension === "jpg" || image.extension === "jpeg") {
-              mimeType = "image/jpeg";
-            } else if (image.extension === "gif") {
-              mimeType = "image/gif";
-            }
-
-            // 关联到之前找到的DISPIMG公式
-            const formulaInfo = imageFormulas[imageId];
-
-            images[index] = {
-              id: imageId,
-              base64: `data:${mimeType};base64,${base64Image}`,
-              mimeType: mimeType,
-              extension: image.extension,
-              formulaInfo: formulaInfo,
-            };
-          }
-        }
-      );
-    } else {
-      console.log("workbook.model.images: 不存在");
-    }
-
-    // 方法2: 尝试从drawings中获取图片
-    if (worksheet.drawings && worksheet.drawings.length > 0) {
-      worksheet.drawings.forEach((drawing, index) => {
-        try {
-          if (drawing.imageId && workbook.model && workbook.model.images) {
-            const image = workbook.model.images[drawing.imageId];
-            if (image && image.buffer) {
-              const base64Image = image.buffer.toString("base64");
-              let mimeType = "image/png";
-              if (image.extension === "jpg" || image.extension === "jpeg") {
-                mimeType = "image/jpeg";
-              }
-
-              // 如果这个图片还没有被添加到images中
-              if (
-                !Object.values(images).some((img) => img.id === drawing.imageId)
-              ) {
-                images[Object.keys(images).length] = {
-                  id: drawing.imageId,
-                  base64: `data:${mimeType};base64,${base64Image}`,
-                  mimeType: mimeType,
-                  extension: image.extension,
-                  position: {
-                    top: drawing.top,
-                    left: drawing.left,
-                    width: drawing.width,
-                    height: drawing.height,
-                  },
-                };
-              }
-            }
-          }
-        } catch (err) {
-          console.error(`处理drawing ${index} 时出错:`, err);
-        }
-      });
-    } else {
-      console.log("worksheet.drawings: 不存在");
-    }
-  } catch (error) {
-    console.error("提取图片时出错:", error);
-  }
-
-  // 创建优化的返回结果格式
-  const result = {
-    data,
-    images: {},
-    formulas: {},
-    mediaInfo: {
-      hasMedia: Object.keys(images).length > 0,
-      totalMediaItems: Object.keys(allMedia).length,
-      totalFormulas: Object.keys(imageFormulas).length,
-      exceljsVersion: "4.4.0",
-      notes:
-        "Excel文件中的图片可能是通过DISPIMG函数特殊引用的，这些图片已尽力提取",
-    },
-  };
-
-  // 添加提取的图片
-  if (Object.keys(images).length > 0) {
-    result.images = images;
-  }
-
-  // 添加找到的DISPIMG公式信息
-  if (Object.keys(imageFormulas).length > 0) {
-    result.formulas = imageFormulas;
-
-    // 如果没有匹配的图片，添加一个提示
-    if (Object.keys(images).length === 0) {
-      result.mediaInfo.message =
-        "找到了DISPIMG公式引用，但无法直接关联到图片数据。请考虑使用公式ID在其他系统中查找对应图片。";
-    }
-  }
-
-  return result;
+  return data;
 }
 
-parseExcelWithImages("./staff_example.xlsx")
-  .then((res) => {
-    console.log(res);
-  })
-  .catch((err) => {
-    console.log(err);
-  });
+// 测试函数
+// parseExcelWithImages("./staff_example.xlsx")
+//   .then((res) => {
+//     console.log("\n--- 解析结果 ---\n");
+//     console.log(`总共解析了 ${res.data.length} 行数据`);
+
+//     // 检查是否有包含图片的单元格
+//     const imageCells = [];
+//     res.data.forEach((row, rowIndex) => {
+//       row.forEach((cell, colIndex) => {
+//         if (cell && typeof cell === 'object' && cell.image) {
+//           imageCells.push({ row: rowIndex + 1, col: colIndex + 1 });
+//         }
+//       });
+//     });
+
+//     if (imageCells.length > 0) {
+//       console.log(`找到 ${imageCells.length} 个包含图片的单元格:`);
+//       imageCells.forEach(cell => {
+//         console.log(`- 行 ${cell.row}, 列 ${cell.col}`);
+//       });
+//     } else {
+//       console.log("没有找到包含图片的单元格");
+//     }
+
+//     // 输出部分结果用于调试
+//     if (res.data.length > 0) {
+//       console.log("\n第一行数据:", res.data[0]);
+//       // 如果有图片，显示部分图片信息
+//       if (res.images && Object.keys(res.images).length > 0) {
+//         const firstImage = Object.values(res.images)[0];
+//         console.log("\n第一张图片信息:");
+//         console.log(`- 类型: ${firstImage.type}`);
+//         console.log(`- Base64长度: ${firstImage.base64 ? firstImage.base64.length : 0}`);
+//         console.log(`- 来源: ${firstImage.source}`);
+//       }
+//     }
+//   })
+//   .catch((err) => {
+//     console.error("解析Excel时出错:", err);
+//   });
 
 export { parseExcelWithImages };
