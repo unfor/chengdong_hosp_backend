@@ -55,6 +55,7 @@ const initTables = async () => {
         department TEXT NOT NULL,
         position TEXT,
         status TEXT DEFAULT 'active',
+        phone TEXT,
         avatar TEXT,
         created_at DATETIME NOT NULL,
         updated_at DATETIME NOT NULL
@@ -174,16 +175,22 @@ const dbService = {
 
   // 创建员工
   createStaff: (staffData, callback) => {
-    const { name, department, position, status = "active", avatar } = staffData;
+    const name = staffData.name?.[0] || "";
+    const department = staffData.department?.[0] || "";
+    const position = staffData.position?.[0] || "";
+    const status = staffData.status?.[0] || "active";
+    const avatar = staffData.avatar?.[0] || "";
+    const phone = staffData.phone?.[0] || "";
     const now = new Date().toISOString();
     db.run(
-      "INSERT INTO staff (name, department, position, status, avatar, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO staff (name, department, position, status, avatar, phone, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
       [
         name,
         department,
         position || "",
         status || "active",
         avatar || "",
+        phone || "",
         now,
         now,
       ],
@@ -193,11 +200,16 @@ const dbService = {
 
   // 更新员工信息
   updateStaff: (id, staffData, callback) => {
-    const { name, department, position, status } = staffData;
+    const name = staffData.name?.[0] || "";
+    const department = staffData.department?.[0] || "";
+    const position = staffData.position?.[0] || "";
+    const status = staffData.status?.[0] || "active";
+    const avatar = staffData.avatar?.[0] || "";
+    const phone = staffData.phone?.[0] || "";
     const now = new Date().toISOString();
     db.run(
-      "UPDATE staff SET name = ?, department = ?, position = ?, status = ?, avatar = ?, updated_at = ? WHERE id = ?",
-      [name, department, position, status, avatar || "", now, id],
+      "UPDATE staff SET name = ?, department = ?, position = ?, status = ?, avatar = ?, phone = ?, updated_at = ? WHERE id = ?",
+      [name, department, position, status, avatar || "", phone || "", now, id],
       callback
     );
   },
@@ -381,17 +393,23 @@ app.post("/admin/staffs/import-staff-data", (req, res) => {
 
 // API路由 - 新增人员
 app.post("/admin/staffs/add-staff", (req, res) => {
-  dbService.createStaff(req.body, function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ id: this.lastID });
+  const form = new multiparty.Form();
+  form.parse(req, (err, data, files) => {
+    dbService.createStaff(data, function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ id: this.lastID });
+    });
   });
 });
 
 // API路由 - 人员更新
-app.put("/admin/staffs/update-staff/:id", (req, res) => {
-  dbService.updateStaff(req.params.id, req.body, function (err) {
-    if (err) return res.status(500).json({ error: err.message });
-    res.json({ changes: this.changes });
+app.post("/admin/staffs/update-staff/:id", (req, res) => {
+  const form = new multiparty.Form();
+  form.parse(req, (err, data, files) => {
+    dbService.updateStaff(req.params.id, data, function (err) {
+      if (err) return res.status(500).json({ error: err.message });
+      res.json({ changes: this.changes });
+    });
   });
 });
 
